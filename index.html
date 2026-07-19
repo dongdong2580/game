@@ -131,11 +131,14 @@
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
-  #joystickZone{position:absolute;left:22px;bottom:22px;pointer-events:auto;}
-  #joystickBase{width:112px;height:112px;border-radius:50%;background:rgba(79,227,255,0.07);
-    border:2px solid rgba(79,227,255,0.35);position:relative;touch-action:none;}
-  #joystickKnob{width:48px;height:48px;border-radius:50%;background:rgba(79,227,255,0.55);
-    border:2px solid var(--cyan);position:absolute;left:32px;top:32px;transition:transform .04s linear;}
+  #joystickZone{position:absolute;left:0;bottom:0;width:58%;height:64%;pointer-events:auto;touch-action:none;}
+  #joystickBase{width:116px;height:116px;border-radius:50%;background:rgba(79,227,255,0.07);
+    border:2px solid rgba(79,227,255,0.35);position:absolute;left:0;top:0;
+    touch-action:none;opacity:0;transition:opacity .1s;}
+  #joystickBase.active{opacity:1;transition:opacity .06s;}
+  #joystickKnob{width:52px;height:52px;border-radius:50%;background:rgba(79,227,255,0.55);
+    border:2px solid var(--cyan);position:absolute;left:32px;top:32px;}
+  #joystickBase.active #joystickKnob{transition:none;}
   #mobileButtons{position:absolute;right:18px;bottom:22px;pointer-events:auto;
     display:grid;grid-template-columns:repeat(2,64px);grid-auto-rows:64px;gap:10px;}
   .mobileBtn{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;
@@ -145,9 +148,16 @@
   #btnDash{border:2px solid var(--cyan);color:var(--cyan);}
   #btnParry{border:2px solid #ffffff;color:#ffffff;}
   #btnWarp{border:2px solid var(--purple);color:var(--purple);}
+  #btnWarp.aiming{animation:warpPulse .5s ease-in-out infinite alternate;box-shadow:0 0 14px rgba(184,79,255,0.9);}
+  @keyframes warpPulse{from{transform:scale(1);}to{transform:scale(1.1);}}
   #btnShield{border:2px solid var(--green);color:var(--green);}
   body.mobile #mobileControls{display:block;}
   body.mobile canvas{touch-action:none;}
+  #warpAimHint{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:16;
+    background:rgba(10,16,24,0.9);border:1.5px solid var(--purple);color:var(--purple);
+    font-family:'Orbitron',sans-serif;font-size:10.5px;letter-spacing:1px;padding:7px 14px;
+    display:none;pointer-events:none;white-space:nowrap;}
+  #warpAimHint.show{display:block;}
 </style>
 </head>
 <body>
@@ -251,6 +261,8 @@
   <div id="skillOptions"></div>
 </div>
 
+<div id="warpAimHint">목표 지점을 탭하세요 (취소: WARP 버튼)</div>
+
 <div id="mobileControls">
   <div id="joystickZone">
     <div id="joystickBase"><div id="joystickKnob"></div></div>
@@ -291,6 +303,7 @@
   const isMobile = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
     ('ontouchstart' in window && navigator.maxTouchPoints>0);
   if(isMobile) document.body.classList.add('mobile');
+  let warpAiming=false; // 모바일: WARP 버튼을 누르면 목표 지점 선택 모드로 전환
 
   // ---- 사운드 엔진 (외부 파일 없이 Web Audio로 합성) ----
   const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
@@ -1003,34 +1016,48 @@
   // ---- 모바일 터치 조작: 왼손 조이스틱(이동) + 오른손 스킬 버튼 ----
   let joystickDir={x:0,y:0};
   let joystickTouchId=null;
+  let joystickCenter={x:0,y:0};
+  const joystickZone=document.getElementById('joystickZone');
   const joystickBase=document.getElementById('joystickBase');
   const joystickKnob=document.getElementById('joystickKnob');
-  const JOY_RADIUS=42;
+  const JOY_RADIUS=46;
+  const JOY_DEADZONE=5;
+  const JOY_HALF=58; // joystickBase 116px의 절반
 
-  function setJoystickFromTouch(touch){
-    const rect=joystickBase.getBoundingClientRect();
-    const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
-    let dx=touch.clientX-cx, dy=touch.clientY-cy;
+  function showJoystickAt(x,y){
+    joystickBase.style.left=(x-JOY_HALF)+'px';
+    joystickBase.style.top=(y-JOY_HALF)+'px';
+    joystickBase.classList.add('active');
+    joystickCenter={x,y};
+  }
+  function updateJoystickFromPoint(x,y){
+    let dx=x-joystickCenter.x, dy=y-joystickCenter.y;
     const d=Math.hypot(dx,dy);
     if(d>JOY_RADIUS){ dx=dx/d*JOY_RADIUS; dy=dy/d*JOY_RADIUS; }
     joystickKnob.style.transform=`translate(${dx}px,${dy}px)`;
-    if(Math.hypot(dx,dy)>6){ joystickDir={x:dx/JOY_RADIUS,y:dy/JOY_RADIUS}; }
+    if(d>JOY_DEADZONE){ joystickDir={x:dx/JOY_RADIUS,y:dy/JOY_RADIUS}; }
     else { joystickDir={x:0,y:0}; }
   }
   function resetJoystick(){
     joystickDir={x:0,y:0};
     joystickKnob.style.transform='translate(0px,0px)';
+    joystickBase.classList.remove('active');
   }
-  joystickBase.addEventListener('touchstart',(e)=>{
+  // 손가락이 닿는 그 자리에 조이스틱이 뜨는 방식(플로팅 조이스틱)이라
+  // 매번 정확한 위치를 짚을 필요 없이 화면 왼쪽 아무 곳이나 누르면 바로 조작 가능
+  joystickZone.addEventListener('touchstart',(e)=>{
+    if(warpAiming) return; // 워프 목표 선택 중에는 조이스틱이 가로채지 않음
+    if(joystickTouchId!==null) return;
     e.preventDefault();
     const t=e.changedTouches[0];
     joystickTouchId=t.identifier;
-    setJoystickFromTouch(t);
+    showJoystickAt(t.clientX,t.clientY);
+    updateJoystickFromPoint(t.clientX,t.clientY);
   },{passive:false});
   window.addEventListener('touchmove',(e)=>{
     if(joystickTouchId===null) return;
     for(const t of e.changedTouches){
-      if(t.identifier===joystickTouchId){ setJoystickFromTouch(t); e.preventDefault(); }
+      if(t.identifier===joystickTouchId){ updateJoystickFromPoint(t.clientX,t.clientY); e.preventDefault(); }
     }
   },{passive:false});
   window.addEventListener('touchend',(e)=>{
@@ -1054,19 +1081,44 @@
     if(!state || state.mode!=='playing') return;
     tryParry();
   },{passive:false});
+  function updateWarpAimUI(){
+    document.getElementById('btnWarp').classList.toggle('aiming',warpAiming);
+    document.getElementById('warpAimHint').classList.toggle('show',warpAiming);
+  }
   document.getElementById('btnWarp').addEventListener('touchstart',(e)=>{
     e.preventDefault();
     if(!state || state.mode!=='playing') return;
     const p=state.player;
-    if(p.skills.warp<=0) return;
-    const d=200;
-    tryWarp({x:p.x+p.facing.x*d, y:p.y+p.facing.y*d});
+    if(p.skills.warp<=0 || p.warpCd>0) return;
+    // 워프 버튼을 누르면 바로 이동하지 않고, 화면을 탭해 목표 지점을 고르는 모드로 전환
+    warpAiming=true;
+    updateWarpAimUI();
   },{passive:false});
   document.getElementById('btnShield').addEventListener('touchstart',(e)=>{
     e.preventDefault();
     if(!state || state.mode!=='playing') return;
     tryShield();
   },{passive:false});
+  // 워프 조준 중에는 다음 터치가 무엇이든(조이스틱/버튼 영역 포함) 목표 지점 선택으로 가로챈다.
+  // WARP 버튼을 다시 누르면 취소.
+  window.addEventListener('touchstart',(e)=>{
+    if(!warpAiming) return;
+    const t=e.changedTouches[0];
+    const targetEl=document.elementFromPoint(t.clientX,t.clientY);
+    if(targetEl && targetEl.closest && targetEl.closest('#btnWarp')){
+      e.preventDefault(); e.stopPropagation();
+      warpAiming=false; updateWarpAimUI();
+      return;
+    }
+    if(!state || state.mode!=='playing'){ warpAiming=false; updateWarpAimUI(); return; }
+    e.preventDefault(); e.stopPropagation();
+    const rect=canvas.getBoundingClientRect();
+    const x=(t.clientX-rect.left)*(W/rect.width);
+    const y=(t.clientY-rect.top)*(H/rect.height);
+    tryWarp({x,y});
+    warpAiming=false;
+    updateWarpAimUI();
+  },{passive:false, capture:true});
 
   function moveVector(){
     const k=state.keys; let x=0,y=0;
@@ -1539,6 +1591,7 @@
     if(isMobile){
       document.getElementById('btnWarp').style.display = p.skills.warp>0 ? 'flex' : 'none';
       document.getElementById('btnShield').style.display = p.skills.shield>0 ? 'flex' : 'none';
+      if(warpAiming && state.mode!=='playing'){ warpAiming=false; updateWarpAimUI(); }
     }
 
     const skillPct=clamp(1-state.skillTimer/SKILL_INTERVAL,0,1)*100;
@@ -1628,3 +1681,4 @@
 </script>
 </body>
 </html>
+
