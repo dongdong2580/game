@@ -313,7 +313,11 @@
   // 모바일 워프 조준: WARP 버튼을 누르고 있는 동안 같은 손가락을 화면 위에서 움직여 목표 지점을 정하고,
   // 손을 떼는 순간 그 지점으로 워프한다 (누르고 있는 동안만 조준 상태 유지).
   let warpAimTouchId=null;
-  let warpAimPoint=null;
+  let warpAimPoint=null;     // 현재 조준 중인 캔버스 좌표 (레티클 위치)
+  let warpAimOrigin=null;    // 조준을 시작한 시점의 플레이어 캔버스 좌표
+  let warpAimStartScreen=null; // 조준을 시작한 시점의 화면(스크린) 좌표
+  let warpAimRect=null;      // 조준 시작 시점의 캔버스 bounding rect (스케일 계산용)
+  const WARP_AIM_MIN_DRAG=18; // 이 거리(캔버스 좌표 기준) 미만으로 움직이면 워프 취소(쿨타임 미소모)
 
   // ---- 사운드 엔진 (효과음은 Web Audio로 합성, BGM은 bgm.mp3 파일 재생) ----
   const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
@@ -1086,14 +1090,8 @@
     document.getElementById('btnWarp').classList.toggle('aiming',aiming);
     document.getElementById('warpAimHint').classList.toggle('show',aiming);
   }
-  function canvasPointFromTouch(t){
-    const rect=canvas.getBoundingClientRect();
-    const x=(t.clientX-rect.left)*(W/rect.width);
-    const y=(t.clientY-rect.top)*(H/rect.height);
-    return {x:clamp(x,0,W),y:clamp(y,0,H)};
-  }
   function cancelWarpAim(){
-    warpAimTouchId=null; warpAimPoint=null;
+    warpAimTouchId=null; warpAimPoint=null; warpAimOrigin=null; warpAimStartScreen=null; warpAimRect=null;
     updateWarpAimUI();
   }
   document.getElementById('btnWarp').addEventListener('touchstart',(e)=>{
@@ -1104,7 +1102,10 @@
     if(warpAimTouchId!==null) return; // 이미 다른 손가락으로 조준 중
     const t=e.changedTouches[0];
     warpAimTouchId=t.identifier;
-    warpAimPoint=canvasPointFromTouch(t);
+    warpAimRect=canvas.getBoundingClientRect();
+    warpAimStartScreen={x:t.clientX,y:t.clientY};
+    warpAimOrigin={x:p.x,y:p.y};
+    warpAimPoint={x:p.x,y:p.y};
     updateWarpAimUI();
   },{passive:false});
   document.getElementById('btnShield').addEventListener('touchstart',(e)=>{
@@ -1112,19 +1113,27 @@
     if(!state || state.mode!=='playing') return;
     tryShield();
   },{passive:false});
-  // 워프 버튼을 누른 손가락을 그대로 화면 위에서 움직이면 조준 지점이 따라오고,
-  // 손을 떼는 순간 그 지점으로 워프한다.
+  // 워프 버튼을 누른 손가락을 그대로 화면 위에서 움직이면, "손가락이 움직인 만큼"이
+  // 플레이어 위치를 기준으로 조준점에 반영된다 (화면-캔버스 비율이 달라도 항상 정확하게 동작).
+  // 손을 떼는 순간 그 지점으로 워프하되, 거의 움직이지 않고 뗀 경우(단순 탭)는 취소한다.
   window.addEventListener('touchmove',(e)=>{
     if(warpAimTouchId===null) return;
     for(const t of e.changedTouches){
-      if(t.identifier===warpAimTouchId){ warpAimPoint=canvasPointFromTouch(t); e.preventDefault(); }
+      if(t.identifier===warpAimTouchId){
+        const scaleX=W/warpAimRect.width, scaleY=H/warpAimRect.height;
+        const dx=(t.clientX-warpAimStartScreen.x)*scaleX;
+        const dy=(t.clientY-warpAimStartScreen.y)*scaleY;
+        warpAimPoint={x:clamp(warpAimOrigin.x+dx,0,W), y:clamp(warpAimOrigin.y+dy,0,H)};
+        e.preventDefault();
+      }
     }
   },{passive:false});
   window.addEventListener('touchend',(e)=>{
     if(warpAimTouchId===null) return;
     for(const t of e.changedTouches){
       if(t.identifier===warpAimTouchId){
-        if(state && state.mode==='playing' && warpAimPoint) tryWarp(warpAimPoint);
+        const moved = warpAimPoint && warpAimOrigin && dist(warpAimPoint,warpAimOrigin)>=WARP_AIM_MIN_DRAG;
+        if(state && state.mode==='playing' && moved) tryWarp(warpAimPoint);
         cancelWarpAim();
       }
     }
@@ -1731,3 +1740,4 @@
 </script>
 </body>
 </html>
+
