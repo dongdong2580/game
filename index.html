@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <title>RIPOSTE // 격납고 50</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#04070c">
+<meta name="description" content="격납고 지하 50층 보스 러시 - 패링과 함정으로 반격하라">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RIPOSTE">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -66,6 +75,11 @@
     font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
     transition:border-color .15s,color .15s;}
   #menuBtn:hover{border-color:var(--cyan);color:var(--cyan);}
+  #muteBtn{position:absolute;top:12px;right:52px;z-index:6;pointer-events:auto;
+    width:30px;height:30px;border-radius:50%;background:rgba(10,16,24,0.7);
+    border:1.5px solid var(--line);color:var(--dim);font-size:13px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s;}
+  #muteBtn:hover{border-color:var(--cyan);color:var(--cyan);}
   #infoModal{position:fixed;inset:0;background:rgba(2,4,8,0.94);display:none;align-items:center;justify-content:center;
     z-index:25;padding:20px;}
   #infoModalBox{background:var(--panel);border:2px solid var(--line);padding:20px;width:100%;max-width:420px;
@@ -107,6 +121,13 @@
     padding:14px 34px;font-size:13px;font-weight:700;letter-spacing:3px;cursor:pointer;}
   #startBtn:hover{background:#8ff2ff;}
   #overBest{color:var(--amber);font-size:11px;letter-spacing:1px;margin-top:-6px;}
+  #installBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--green);
+    border:1.5px solid var(--green);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
+    cursor:pointer;}
+  #installBtn:hover{background:rgba(157,255,79,0.1);}
+  #installBtn.show{display:inline-block;}
+  #installHint{display:none;color:var(--dim);font-size:10px;line-height:1.7;max-width:300px;}
+  #installHint.show{display:block;}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -155,6 +176,7 @@
         </div>
       </div>
       <div id="floorFlash"><div id="floorFlashText"></div></div>
+      <button id="muteBtn" title="음소거">🔊</button>
       <button id="menuBtn" title="메뉴">?</button>
     </div>
   </div>
@@ -219,6 +241,8 @@
     30초마다 시스템 업그레이드를 선택할 수 있다.
   </div>
   <button id="startBtn">시작</button>
+  <button id="installBtn">📲 앱으로 다운로드</button>
+  <div id="installHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
 </div>
 
 <div id="skillOverlay">
@@ -263,8 +287,98 @@
     resizeRaf=requestAnimationFrame(resizeCanvas);
   });
 
+  // ---- 모바일 감지 (터치 조작 + 패링 난이도 조정에 사용) ----
+  const isMobile = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+    ('ontouchstart' in window && navigator.maxTouchPoints>0);
+  if(isMobile) document.body.classList.add('mobile');
+
+  // ---- 사운드 엔진 (외부 파일 없이 Web Audio로 합성) ----
+  const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const masterGain=audioCtx.createGain(); masterGain.gain.value=1; masterGain.connect(audioCtx.destination);
+  const sfxGain=audioCtx.createGain(); sfxGain.gain.value=0.8; sfxGain.connect(masterGain);
+  const musicGainNode=audioCtx.createGain(); musicGainNode.gain.value=0.32; musicGainNode.connect(masterGain);
+  let muted=false, audioStarted=false;
+
+  function tone(freq,duration,opts){
+    opts=opts||{};
+    const type=opts.type||'sine', gainVal=opts.gain!=null?opts.gain:0.25,
+      freqEnd=opts.freqEnd!=null?opts.freqEnd:null, dest=opts.dest||sfxGain, delay=opts.delay||0;
+    const t0=audioCtx.currentTime+delay;
+    const osc=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    osc.type=type;
+    osc.frequency.setValueAtTime(Math.max(1,freq),t0);
+    if(freqEnd!=null) osc.frequency.exponentialRampToValueAtTime(Math.max(1,freqEnd),t0+duration);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(gainVal,t0+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+duration);
+    osc.connect(g); g.connect(dest);
+    osc.start(t0); osc.stop(t0+duration+0.04);
+  }
+  function noiseBurst(duration,opts){
+    opts=opts||{};
+    const gainVal=opts.gain!=null?opts.gain:0.3, filterFreq=opts.filterFreq||1200,
+      dest=opts.dest||sfxGain, delay=opts.delay||0;
+    const t0=audioCtx.currentTime+delay;
+    const bufferSize=Math.max(1,Math.floor(audioCtx.sampleRate*duration));
+    const buffer=audioCtx.createBuffer(1,bufferSize,audioCtx.sampleRate);
+    const data=buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i]=(Math.random()*2-1)*Math.pow(1-i/bufferSize,1.5);
+    const src=audioCtx.createBufferSource(); src.buffer=buffer;
+    const filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=filterFreq;
+    const g=audioCtx.createGain();
+    g.gain.setValueAtTime(gainVal,t0); g.gain.exponentialRampToValueAtTime(0.001,t0+duration);
+    src.connect(filter); filter.connect(g); g.connect(dest);
+    src.start(t0);
+  }
+
+  function sfxDash(){ tone(240,0.14,{type:'sawtooth',gain:0.18,freqEnd:80}); noiseBurst(0.1,{gain:0.12,filterFreq:2200}); }
+  function sfxParryReady(){ tone(1100,0.05,{type:'square',gain:0.14,freqEnd:1400}); }
+  function sfxReflect(){ tone(700,0.16,{type:'triangle',gain:0.24,freqEnd:1800}); }
+  function sfxStun(){ tone(220,0.28,{type:'sawtooth',gain:0.26,freqEnd:60}); noiseBurst(0.2,{gain:0.15,filterFreq:900}); }
+  function sfxWarp(){ tone(180,0.32,{type:'sine',gain:0.22,freqEnd:1100}); }
+  function sfxShield(){ tone(500,0.22,{type:'sine',gain:0.18,freqEnd:900}); tone(750,0.22,{type:'sine',gain:0.12,freqEnd:1300,delay:0.02}); }
+  function sfxHit(){ noiseBurst(0.16,{gain:0.32,filterFreq:550}); tone(110,0.16,{type:'square',gain:0.2,freqEnd:45}); }
+  function sfxZap(){ tone(1600,0.08,{type:'square',gain:0.12,freqEnd:2400}); }
+  function sfxFloorClear(){ [520,660,780].forEach((f,i)=>tone(f,0.22,{type:'triangle',gain:0.2,delay:i*0.11})); }
+  function sfxAllClear(){ [440,554,659,880,1108].forEach((f,i)=>tone(f,0.3,{type:'triangle',gain:0.22,delay:i*0.12})); }
+  function sfxGameOver(){ tone(260,0.5,{type:'sawtooth',gain:0.22,freqEnd:60}); tone(180,0.6,{type:'sawtooth',gain:0.16,freqEnd:40,delay:0.12}); }
+  function sfxUpgradeReady(){ tone(660,0.12,{type:'sine',gain:0.16,freqEnd:990}); tone(990,0.14,{type:'sine',gain:0.12,freqEnd:1320,delay:0.06}); }
+  function sfxUpgradePick(){ tone(880,0.16,{type:'triangle',gain:0.2,freqEnd:1320}); }
+
+  let musicNodes=null, musicInterval=null;
+  function startMusic(){
+    if(musicNodes) return;
+    const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator();
+    o1.type='sawtooth'; o1.frequency.value=55;
+    o2.type='sine'; o2.frequency.value=55.4;
+    const filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=260;
+    const g=audioCtx.createGain(); g.gain.value=0.5;
+    o1.connect(filter); o2.connect(filter); filter.connect(g); g.connect(musicGainNode);
+    o1.start(); o2.start();
+    musicNodes={o1,o2,filter,g};
+    const scale=[110,130.81,164.81,196,220,261.63];
+    musicInterval=setInterval(()=>{
+      if(muted) return;
+      const f=scale[Math.floor(Math.random()*scale.length)];
+      tone(f,1.1,{type:'sine',gain:0.06,dest:musicGainNode});
+      if(Math.random()<0.35) tone(f*2,0.8,{type:'triangle',gain:0.035,dest:musicGainNode,delay:0.2});
+    },1500);
+  }
+  function ensureAudio(){
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    if(!audioStarted){ audioStarted=true; startMusic(); }
+  }
+  function toggleMute(){
+    muted=!muted;
+    masterGain.gain.setTargetAtTime(muted?0:1, audioCtx.currentTime, 0.05);
+    const btn=document.getElementById('muteBtn');
+    if(btn) btn.textContent=muted?'🔇':'🔊';
+  }
+
   const PLAYER_SPEED=235, DASH_SPEED=760, DASH_TIME=140, DASH_CD=950;
-  const PARRY_WINDOW=90, PARRY_CD=560, PARRY_RADIUS=24;
+  // 모바일에서는 손가락 반응속도를 고려해 패링 판정 창을 넓히고 반경을 살짝 키운다
+  const PARRY_WINDOW=isMobile?170:90, PARRY_CD=560, PARRY_RADIUS=isMobile?32:24;
   const BOSS_DAMAGE_TAKEN_MULT=0.7; // overall reduction to damage the boss receives
   const TRAP_WARN_MS=650, TRAP_ACTIVE_MS=2600, TRAP_RADIUS=30;
   const BOSS_CHASE_BASE=68; // chase speed toward the player when not locked into a scripted move
@@ -302,15 +416,15 @@
   }
 
   // ---- 업그레이드 시스템 상수 ----
-  const SKILL_INTERVAL=30000; // 30초마다 업그레이드 선택
-  const WARP_CD_BASE=120000; // 워핑 기본 쿨타임 2분, 추가 습득마다 절반
-  const WARP_CD_MIN=10000; // 워핑 쿨타임 최소(하한) 10초
-  const SHIELD_DUR_BASE=500; // 보호막 1단계 무적시간(ms) = 0.5초
-  const REGEN_INTERVAL=20000; // 기본 스킬: 20초마다 자동 회복
-  const REGEN_PCT=0.10; // 회복량 = 최대체력의 10%
-  const SHIELD_CD_FIXED=15000; // 보호막 자체 쿨타임(고정)
+  const SKILL_INTERVAL=30000;      // 30초마다 업그레이드 선택
+  const WARP_CD_BASE=120000;       // 워핑 기본 쿨타임 2분, 추가 습득마다 절반
+  const WARP_CD_MIN=10000;         // 워핑 쿨타임 최소(하한) 10초
+  const SHIELD_DUR_BASE=500;       // 보호막 1단계 무적시간(ms) = 0.5초
+  const REGEN_INTERVAL=20000;      // 기본 스킬: 20초마다 자동 회복
+  const REGEN_PCT=0.10;            // 회복량 = 최대체력의 10%
+  const SHIELD_CD_FIXED=15000;     // 보호막 자체 쿨타임(고정)
   const HP_HALF=Math.round(PLAYER_MAXHP*0.5); // 회복/최대체력 증가량 = 시작 체력의 절반
-  const PARRY_STUN_BASE=15; // 패링 스턴 대미지 기본값
+  const PARRY_STUN_BASE=15;        // 패링 스턴 대미지 기본값
 
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
   function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
@@ -697,8 +811,15 @@
   function stunBoss(boss,dmg){
     boss.hp-=dmg; boss.stunTimer=1400; boss.moveTimer=0; boss.chargeActive=false;
     boss.vx=0;boss.vy=0; boss.tag='stunned';
+    sfxStun();
     spawnFloatText(boss.x,boss.y-40,'PARRY!','#4fe3ff');
     spawnFloatText(boss.x,boss.y-20,'-'+Math.round(dmg),'#ffffff');
+  }
+
+  function damagePlayer(dmg){
+    state.player.hp-=dmg;
+    state.player.hitInvuln=HIT_INVULN;
+    sfxHit();
   }
 
   function spawnFloatText(x,y,txt,color){
@@ -793,6 +914,7 @@
 
   function openSkillSelect(){
     state.mode='skillSelect';
+    sfxUpgradeReady();
     const pool=SKILL_POOL.slice();
     for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
     const picks=pool.slice(0,3);
@@ -804,6 +926,7 @@
       btn.innerHTML=`<div class="skillOptName">${sk.name}</div><div class="skillOptDesc">${sk.getDesc(state.player)}</div>`;
       btn.addEventListener('click',()=>{
         applySkill(sk.id);
+        sfxUpgradePick();
         document.getElementById('skillOverlay').style.display='none';
         state.skillTimer=SKILL_INTERVAL;
         state.lastTime=performance.now();
@@ -822,12 +945,14 @@
     p.y=clamp(tp.y,PLAYER_R+6,H-PLAYER_R-6);
     p.warpCd=p.warpCdMax;
     p.hitInvuln=Math.max(p.hitInvuln,150);
+    sfxWarp();
   }
   function tryShield(){
     const p=state.player;
     if(p.skills.shield<=0 || p.shieldCd>0) return;
     p.shieldActiveTimer=p.shieldDuration;
     p.shieldCd=p.shieldCdMax;
+    sfxShield();
   }
 
   function initGame(){
@@ -876,10 +1001,6 @@
   });
 
   // ---- 모바일 터치 조작: 왼손 조이스틱(이동) + 오른손 스킬 버튼 ----
-  const isMobile = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
-    ('ontouchstart' in window && navigator.maxTouchPoints>0);
-  if(isMobile) document.body.classList.add('mobile');
-
   let joystickDir={x:0,y:0};
   let joystickTouchId=null;
   const joystickBase=document.getElementById('joystickBase');
@@ -966,11 +1087,13 @@
     if(!d || (d.x===0 && d.y===0)) d=moveVector();
     if(d.x===0 && d.y===0) d=p.facing;
     p.dashDir=d; p.dashTimer=DASH_TIME; p.dashCd=DASH_CD;
+    sfxDash();
   }
   function tryParry(){
     const p=state.player;
     if(p.parryCd>0) return;
     p.parryTimer=PARRY_WINDOW; p.parryCd=PARRY_CD;
+    sfxParryReady();
   }
 
   // ---- Update ----
@@ -1029,7 +1152,7 @@
       if(parryActive && dist(p,boss)<PARRY_RADIUS+BOSS_R-8){
         stunBoss(boss,p.parryStunDamage*boss.scale.dmg*BOSS_DAMAGE_TAKEN_MULT);
       } else if(!playerInvuln && dist(p,boss)<PLAYER_R+BOSS_R-6){
-        p.hp-=boss.contactDmgCurrent; p.hitInvuln=HIT_INVULN;
+        damagePlayer(boss.contactDmgCurrent);
         boss.moveTimer=0; boss.chargeActive=false; boss.vx=0;boss.vy=0;
       }
     } else if(!playerInvuln && dist(p,boss)<PLAYER_R+BOSS_R-10 && boss.stunTimer<=0){
@@ -1052,6 +1175,7 @@
           const dmg=9*(1+0.15*boss.tier)*BOSS_DAMAGE_TAKEN_MULT;
           boss.hp-=dmg;
           spawnFloatText(boss.x,boss.y-60,'-'+Math.round(dmg)+' 함정','#9dff4f');
+          sfxZap();
           t.triggered=true; t.phase='spent'; t.timer=260;
         } else if(t.timer<=0){
           state.traps.splice(i,1); continue;
@@ -1089,10 +1213,11 @@
           pr.vx=Math.cos(ang)*sp; pr.vy=Math.sin(ang)*sp;
           pr.color='#4fe3ff';
           spawnFloatText(p.x,p.y-30,'REFLECT','#4fe3ff');
+          sfxReflect();
           continue;
         }
         if(!playerInvuln && dist(pr,p)<PLAYER_R+pr.r){
-          p.hp-=pr.dmg; p.hitInvuln=HIT_INVULN; state.projectiles.splice(i,1); continue;
+          damagePlayer(pr.dmg); state.projectiles.splice(i,1); continue;
         }
       }
     }
@@ -1108,7 +1233,7 @@
       while(diff>Math.PI) diff-=Math.PI*2;
       while(diff<-Math.PI) diff+=Math.PI*2;
       if(!playerInvuln && Math.abs(diff)<0.14 && d<420 && L.hitCd<=0){
-        p.hp-=L.dmg; L.hitCd=300;
+        p.hp-=L.dmg; L.hitCd=300; sfxHit();
       }
     }
 
@@ -1119,7 +1244,7 @@
       if(S.r>=S.maxR){ state.slams.splice(i,1); continue; }
       const d=dist(S,p);
       if(!S.hit && !playerInvuln && Math.abs(d-S.r)<18){
-        p.hp-=S.dmg; S.hit=true; p.hitInvuln=HIT_INVULN;
+        damagePlayer(S.dmg); S.hit=true;
       }
     }
 
@@ -1144,6 +1269,7 @@
           const dmg=10*(1+0.15*boss.tier)*BOSS_DAMAGE_TAKEN_MULT;
           boss.hp-=dmg;
           spawnFloatText(boss.x,boss.y-50,'-'+Math.round(dmg)+' 도관','#ffb84f');
+          sfxZap();
           state.floaters.push({zap:true,x1:c.x,y1:c.y,x2:boss.x,y2:boss.y,life:220,maxLife:220});
           c.cd=5200;
         } else {
@@ -1167,16 +1293,19 @@
     state.mode='floorClear';
     if(state.floor>=50){
       state.mode='victory';
+      sfxAllClear();
       await saveBestIfHigher(50);
       showOverlay('ALL CLEAR','격납고 50층 전체 제압. 당신은 심연 최심부의 지배자다.','재도전');
       document.getElementById('overBest').textContent=formatBest();
       return;
     }
+    sfxFloorClear();
     const hpFrac=state.player.hp/state.player.maxhp;
     setTimeout(()=>{ startFloor(state.floor+1,hpFrac); }, 900);
   }
   async function gameOver(){
     state.mode='gameOver';
+    sfxGameOver();
     await saveBestIfHigher(state.floor);
     showOverlay('HULL BREACH', `${state.floor}층에서 격추당했다. (보스: ${state.boss.name})`, '재기동');
     document.getElementById('overBest').textContent=formatBest();
@@ -1188,6 +1317,7 @@
     document.getElementById('overlay').style.display='flex';
   }
   document.getElementById('restartBtn').addEventListener('click',()=>{
+    ensureAudio();
     document.getElementById('overlay').style.display='none';
     initGame();
   });
@@ -1424,9 +1554,12 @@
   }
 
   document.getElementById('startBtn').addEventListener('click', ()=>{
+    ensureAudio();
     document.getElementById('lobbyOverlay').style.display='none';
     initGame();
   });
+
+  document.getElementById('muteBtn').addEventListener('click', toggleMute);
 
   // ---- 메뉴(조작법/진행/업그레이드) 모달 ----
   const infoModal=document.getElementById('infoModal');
@@ -1449,6 +1582,46 @@
   window.addEventListener('keydown',(e)=>{
     if(e.key==='Escape' && infoModal.style.display==='flex') closeMenu();
   });
+
+  // ---- PWA 설치 (모바일 진입 시 시작 화면에 다운로드 버튼 노출) ----
+  let deferredInstallPrompt=null;
+  const installBtn=document.getElementById('installBtn');
+  const installHint=document.getElementById('installHint');
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(isMobile && !isStandalone){
+    if(isIOS){ installHint.classList.add('show'); }
+    else { installBtn.classList.add('show'); }
+  }
+  window.addEventListener('beforeinstallprompt',(e)=>{
+    e.preventDefault();
+    deferredInstallPrompt=e;
+    if(isMobile && !isStandalone) installBtn.classList.add('show');
+  });
+  installBtn.addEventListener('click', async ()=>{
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt=null;
+    installBtn.classList.remove('show');
+  });
+  window.addEventListener('appinstalled', ()=>{
+    installBtn.classList.remove('show');
+    installHint.classList.remove('show');
+  });
+  if('serviceWorker' in navigator){
+    if(location.protocol==='file:'){
+      console.warn('[RIPOSTE] file:// 에서는 서비스워커가 등록되지 않습니다. http(s):// 또는 localhost로 열어주세요.');
+    } else {
+      window.addEventListener('load', ()=>{
+        navigator.serviceWorker.register('sw.js')
+          .then((reg)=>console.log('[RIPOSTE] 서비스워커 등록 성공:', reg.scope))
+          .catch((err)=>console.error('[RIPOSTE] 서비스워커 등록 실패:', err));
+      });
+    }
+  } else {
+    console.warn('[RIPOSTE] 이 브라우저는 서비스워커를 지원하지 않습니다.');
+  }
 
   loadBest();
 })();
