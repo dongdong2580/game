@@ -121,21 +121,21 @@
     padding:14px 34px;font-size:13px;font-weight:700;letter-spacing:3px;cursor:pointer;}
   #startBtn:hover{background:#8ff2ff;}
   #overBest{color:var(--amber);font-size:11px;letter-spacing:1px;margin-top:-6px;}
-  #installBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--green);
+  #installBtn,#overInstallBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--green);
     border:1.5px solid var(--green);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
-  #installBtn:hover{background:rgba(157,255,79,0.1);}
-  #installBtn.show{display:inline-block;}
-  #installHint{display:none;color:var(--dim);font-size:10px;line-height:1.7;max-width:300px;}
-  #installHint.show{display:block;}
-  #fullscreenBtn{font-family:'Orbitron',sans-serif;background:transparent;color:var(--amber);
+  #installBtn:hover,#overInstallBtn:hover{background:rgba(157,255,79,0.1);}
+  #installBtn.show,#overInstallBtn.show{display:inline-block;}
+  #installHint,#overInstallHint{display:none;color:var(--dim);font-size:10px;line-height:1.7;max-width:300px;}
+  #installHint.show,#overInstallHint.show{display:block;}
+  #fullscreenBtn,#overFullscreenBtn{font-family:'Orbitron',sans-serif;background:transparent;color:var(--amber);
     border:1.5px solid var(--amber);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
-  #fullscreenBtn:hover{background:rgba(255,184,79,0.1);}
-  #layoutBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--purple);
+  #fullscreenBtn:hover,#overFullscreenBtn:hover{background:rgba(255,184,79,0.1);}
+  #layoutBtn,#overLayoutBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--purple);
     border:1.5px solid var(--purple);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
-  #layoutBtn:hover{background:rgba(184,79,255,0.1);}
+  #layoutBtn:hover,#overLayoutBtn:hover{background:rgba(184,79,255,0.1);}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -264,6 +264,10 @@
   <p id="overSub"></p>
   <div id="overBest"></div>
   <button id="restartBtn">재기동</button>
+  <button id="overFullscreenBtn">⛶ 전체화면</button>
+  <button id="overLayoutBtn">🎮 조작 위치 설정</button>
+  <button id="overInstallBtn">📲 앱으로 다운로드</button>
+  <div id="overInstallHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
 </div>
 
 <div id="lobbyOverlay">
@@ -1069,13 +1073,19 @@
   let controlLayout=null;       // {joystick:{leftPct,topPct}, dash:{...}, parry:{...}, warp:{...}, shield:{...}}
   let fixedJoystickAnchor=null; // 화면 좌표(px), controlLayout이 있을 때만 사용
 
+  // joystickBase는 position:absolute인 joystickZone의 좌상단을 기준으로 좌표가 매겨지므로,
+  // 화면(viewport) 기준 좌표를 넣을 때는 반드시 zone의 실제 화면상 위치만큼 보정해야 한다.
+  function setJoystickBaseAtViewportPoint(vx,vy){
+    const zr=joystickZone.getBoundingClientRect();
+    joystickBase.style.left=(vx-zr.left-JOY_HALF)+'px';
+    joystickBase.style.top=(vy-zr.top-JOY_HALF)+'px';
+  }
   function applyControlLayout(){
     if(!isMobile) return;
     const w=window.innerWidth, h=window.innerHeight;
     if(controlLayout && controlLayout.joystick){
       fixedJoystickAnchor={x:controlLayout.joystick.leftPct/100*w, y:controlLayout.joystick.topPct/100*h};
-      joystickBase.style.left=(fixedJoystickAnchor.x-JOY_HALF)+'px';
-      joystickBase.style.top=(fixedJoystickAnchor.y-JOY_HALF)+'px';
+      setJoystickBaseAtViewportPoint(fixedJoystickAnchor.x, fixedJoystickAnchor.y);
       joystickBase.classList.add('pinned');
     } else {
       fixedJoystickAnchor=null;
@@ -1111,8 +1121,7 @@
   }
 
   function showJoystickAt(x,y){
-    joystickBase.style.left=(x-JOY_HALF)+'px';
-    joystickBase.style.top=(y-JOY_HALF)+'px';
+    setJoystickBaseAtViewportPoint(x,y);
     joystickBase.classList.add('active');
     joystickCenter={x,y};
   }
@@ -1483,6 +1492,7 @@
     document.getElementById('overSub').textContent=sub;
     document.getElementById('restartBtn').textContent=btnText;
     document.getElementById('overlay').style.display='flex';
+    updateOverlayExtraButtons();
   }
   document.getElementById('restartBtn').addEventListener('click',()=>{
     ensureAudio();
@@ -1759,10 +1769,14 @@
     }
   }
   const fullscreenBtn=document.getElementById('fullscreenBtn');
-  if(!(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen)){
+  const overFullscreenBtn=document.getElementById('overFullscreenBtn');
+  const canFullscreen = !!(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen);
+  if(!canFullscreen){
     fullscreenBtn.style.display='none';
+    overFullscreenBtn.style.display='none';
   }
   fullscreenBtn.addEventListener('click', toggleFullscreen);
+  overFullscreenBtn.addEventListener('click', toggleFullscreen);
 
   // ---- 메뉴(조작법/진행/업그레이드) 모달 ----
   const infoModal=document.getElementById('infoModal');
@@ -1863,17 +1877,36 @@
     for(const key in LAYOUT_PROXY_DEFAULTS) placeProxy(key);
   }
   document.getElementById('layoutBtn').addEventListener('click', openLayoutEditor);
+  document.getElementById('overLayoutBtn').addEventListener('click', openLayoutEditor);
   document.getElementById('layoutSaveBtn').addEventListener('click', saveLayout);
   document.getElementById('layoutResetBtn').addEventListener('click', resetLayout);
   document.getElementById('layoutCloseBtn').addEventListener('click', ()=>{ layoutOverlay.style.display='none'; });
-  if(isMobile){ document.getElementById('layoutBtn').style.display='inline-block'; }
+  if(isMobile){
+    document.getElementById('layoutBtn').style.display='inline-block';
+    document.getElementById('overLayoutBtn').style.display='inline-block';
+  }
 
-  // ---- PWA 설치 (모바일 진입 시 시작 화면에 다운로드 버튼 노출) ----
+  // ---- PWA 설치 (모바일 진입 시 시작 화면 및 게임오버 화면에 다운로드 버튼 노출) ----
   let deferredInstallPrompt=null;
   const installBtn=document.getElementById('installBtn');
   const installHint=document.getElementById('installHint');
+  const overInstallBtn=document.getElementById('overInstallBtn');
+  const overInstallHint=document.getElementById('overInstallHint');
   const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  function updateOverlayExtraButtons(){
+    // 게임오버/승리 오버레이가 뜰 때, 모바일 여부에 따라 전체화면/레이아웃/설치 버튼 노출을 갱신한다
+    overFullscreenBtn.style.display = canFullscreen ? 'inline-block' : 'none';
+    overLayoutBtn.style.display = isMobile ? 'inline-block' : 'none';
+    if(isMobile && !isStandalone){
+      if(isIOS){ overInstallHint.classList.add('show'); }
+      else if(deferredInstallPrompt){ overInstallBtn.classList.add('show'); }
+    } else {
+      overInstallBtn.classList.remove('show');
+      overInstallHint.classList.remove('show');
+    }
+  }
+  const overLayoutBtn=document.getElementById('overLayoutBtn');
   if(isMobile && !isStandalone){
     if(isIOS){ installHint.classList.add('show'); }
     else { installBtn.classList.add('show'); }
@@ -1881,18 +1914,26 @@
   window.addEventListener('beforeinstallprompt',(e)=>{
     e.preventDefault();
     deferredInstallPrompt=e;
-    if(isMobile && !isStandalone) installBtn.classList.add('show');
+    if(isMobile && !isStandalone){
+      installBtn.classList.add('show');
+      if(state && (state.mode==='gameOver'||state.mode==='victory')) overInstallBtn.classList.add('show');
+    }
   });
-  installBtn.addEventListener('click', async ()=>{
+  async function doInstall(){
     if(!deferredInstallPrompt) return;
     deferredInstallPrompt.prompt();
     await deferredInstallPrompt.userChoice;
     deferredInstallPrompt=null;
     installBtn.classList.remove('show');
-  });
+    overInstallBtn.classList.remove('show');
+  }
+  installBtn.addEventListener('click', doInstall);
+  overInstallBtn.addEventListener('click', doInstall);
   window.addEventListener('appinstalled', ()=>{
-    installBtn.classList.remove('show');f,w
+    installBtn.classList.remove('show');
     installHint.classList.remove('show');
+    overInstallBtn.classList.remove('show');
+    overInstallHint.classList.remove('show');
   });
   if('serviceWorker' in navigator){
     if(location.protocol==='file:'){
