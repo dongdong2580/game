@@ -93,7 +93,7 @@
   #skillTimerBar{position:absolute;top:0;left:0;right:0;height:4px;background:rgba(255,255,255,0.06);z-index:3;}
   #skillTimerFill{height:100%;width:0%;background:linear-gradient(90deg,var(--green),#d4ff9d);box-shadow:0 0 8px rgba(157,255,79,0.7);transition:width .1s linear;}
   #overlay,#skillOverlay{position:fixed;inset:0;background:rgba(2,4,8,0.92);display:none;align-items:center;justify-content:center;
-    flex-direction:column;gap:14px;z-index:10;text-align:center;padding:20px;}
+    flex-direction:column;gap:14px;z-index:18;text-align:center;padding:20px;}
   #overlay h2{font-family:'Orbitron',sans-serif;font-size:22px;letter-spacing:3px;}
   #overlay p{color:var(--dim);font-size:12px;line-height:1.8;}
   #overlay button{font-family:'Orbitron',sans-serif;background:var(--cyan);color:#031017;border:none;
@@ -132,6 +132,10 @@
     border:1.5px solid var(--amber);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
   #fullscreenBtn:hover{background:rgba(255,184,79,0.1);}
+  #layoutBtn{display:none;font-family:'Orbitron',sans-serif;background:transparent;color:var(--purple);
+    border:1.5px solid var(--purple);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
+    cursor:pointer;}
+  #layoutBtn:hover{background:rgba(184,79,255,0.1);}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -140,6 +144,7 @@
     border:2px solid rgba(79,227,255,0.35);position:absolute;left:0;top:0;
     touch-action:none;opacity:0;transition:opacity .1s;}
   #joystickBase.active{opacity:1;transition:opacity .06s;}
+  #joystickBase.pinned{opacity:1;}
   #joystickKnob{width:52px;height:52px;border-radius:50%;background:rgba(79,227,255,0.55);
     border:2px solid var(--cyan);position:absolute;left:32px;top:32px;}
   #joystickBase.active #joystickKnob{transition:none;}
@@ -162,6 +167,21 @@
     font-family:'Orbitron',sans-serif;font-size:10.5px;letter-spacing:1px;padding:7px 14px;
     display:none;pointer-events:none;white-space:nowrap;}
   #warpAimHint.show{display:block;}
+
+  /* ---- 조작 레이아웃 편집기 ---- */
+  #layoutOverlay{position:fixed;inset:0;background:rgba(2,4,8,0.95);display:none;z-index:27;}
+  #layoutHint{position:absolute;top:16px;left:0;right:0;text-align:center;color:var(--cyan);
+    font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:1px;padding:0 20px;line-height:1.6;}
+  .layoutDraggable{position:fixed;display:flex;align-items:center;justify-content:center;
+    font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:0.5px;color:var(--text);
+    background:rgba(10,16,24,0.85);border:2px dashed var(--cyan);border-radius:50%;
+    touch-action:none;cursor:grab;user-select:none;}
+  .layoutJoy{width:116px;height:116px;border-color:var(--cyan);color:var(--cyan);}
+  .layoutBtnProxy{width:64px;height:64px;border-color:var(--amber);color:var(--amber);}
+  #layoutActions{position:absolute;bottom:20px;left:0;right:0;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  #layoutActions button{font-family:'Orbitron',sans-serif;background:transparent;border:1.5px solid var(--cyan);
+    color:var(--cyan);padding:10px 18px;font-size:11px;letter-spacing:1px;cursor:pointer;}
+  #layoutActions button:hover{background:rgba(79,227,255,0.1);}
 </style>
 </head>
 <body>
@@ -256,6 +276,7 @@
   </div>
   <button id="startBtn">시작</button>
   <button id="fullscreenBtn">⛶ 전체화면</button>
+  <button id="layoutBtn">🎮 조작 위치 설정</button>
   <button id="installBtn">📲 앱으로 다운로드</button>
   <div id="installHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
 </div>
@@ -277,6 +298,20 @@
     <button id="btnParry" class="mobileBtn">PARRY</button>
     <button id="btnWarp" class="mobileBtn" style="display:none;">WARP</button>
     <button id="btnShield" class="mobileBtn" style="display:none;">SHIELD</button>
+  </div>
+</div>
+
+<div id="layoutOverlay">
+  <div id="layoutHint">손잡이와 버튼을 원하는 위치로 드래그하세요<br>(스킬 버튼은 아직 습득 전이어도 위치를 미리 정할 수 있습니다)</div>
+  <div id="layoutJoyProxy" class="layoutDraggable layoutJoy">JOY</div>
+  <div id="layoutBtnDash" class="layoutDraggable layoutBtnProxy" data-key="dash">DASH</div>
+  <div id="layoutBtnParry" class="layoutDraggable layoutBtnProxy" data-key="parry">PARRY</div>
+  <div id="layoutBtnWarp" class="layoutDraggable layoutBtnProxy" data-key="warp">WARP</div>
+  <div id="layoutBtnShield" class="layoutDraggable layoutBtnProxy" data-key="shield">SHIELD</div>
+  <div id="layoutActions">
+    <button id="layoutSaveBtn">저장</button>
+    <button id="layoutResetBtn">기본값</button>
+    <button id="layoutCloseBtn">닫기</button>
   </div>
 </div>
 
@@ -1029,6 +1064,52 @@
   const JOY_DEADZONE=5;
   const JOY_HALF=58; // joystickBase 116px의 절반
 
+  // ---- 조작 레이아웃 커스터마이징 ----
+  const CONTROL_LAYOUT_KEY='control_layout';
+  let controlLayout=null;       // {joystick:{leftPct,topPct}, dash:{...}, parry:{...}, warp:{...}, shield:{...}}
+  let fixedJoystickAnchor=null; // 화면 좌표(px), controlLayout이 있을 때만 사용
+
+  function applyControlLayout(){
+    if(!isMobile) return;
+    const w=window.innerWidth, h=window.innerHeight;
+    if(controlLayout && controlLayout.joystick){
+      fixedJoystickAnchor={x:controlLayout.joystick.leftPct/100*w, y:controlLayout.joystick.topPct/100*h};
+      joystickBase.style.left=(fixedJoystickAnchor.x-JOY_HALF)+'px';
+      joystickBase.style.top=(fixedJoystickAnchor.y-JOY_HALF)+'px';
+      joystickBase.classList.add('pinned');
+    } else {
+      fixedJoystickAnchor=null;
+      joystickBase.classList.remove('pinned');
+    }
+    const btnIds={dash:'btnDash',parry:'btnParry',warp:'btnWarp',shield:'btnShield'};
+    for(const key in btnIds){
+      const el=document.getElementById(btnIds[key]);
+      if(controlLayout && controlLayout[key]){
+        const cx=controlLayout[key].leftPct/100*w, cy=controlLayout[key].topPct/100*h;
+        el.style.position='fixed';
+        el.style.left=(cx-32)+'px';
+        el.style.top=(cy-32)+'px';
+        el.style.right='auto';
+        el.style.bottom='auto';
+      } else {
+        el.style.position='';
+        el.style.left=''; el.style.top=''; el.style.right=''; el.style.bottom='';
+      }
+    }
+  }
+  window.addEventListener('resize',()=>{ if(isMobile) applyControlLayout(); });
+
+  async function loadControlLayout(){
+    if(!isMobile) return;
+    try{
+      const r=await window.storage.get(CONTROL_LAYOUT_KEY,false);
+      controlLayout = r ? JSON.parse(r.value) : null;
+    }catch(e){
+      controlLayout=null;
+    }
+    applyControlLayout();
+  }
+
   function showJoystickAt(x,y){
     joystickBase.style.left=(x-JOY_HALF)+'px';
     joystickBase.style.top=(y-JOY_HALF)+'px';
@@ -1046,16 +1127,26 @@
   function resetJoystick(){
     joystickDir={x:0,y:0};
     joystickKnob.style.transform='translate(0px,0px)';
-    joystickBase.classList.remove('active');
+    if(fixedJoystickAnchor){
+      // 고정 위치 모드에서는 손을 떼도 손잡이가 계속 보인다
+      showJoystickAt(fixedJoystickAnchor.x,fixedJoystickAnchor.y);
+    } else {
+      joystickBase.classList.remove('active');
+    }
   }
   // 손가락이 닿는 그 자리에 조이스틱이 뜨는 방식(플로팅 조이스틱)이라
   // 매번 정확한 위치를 짚을 필요 없이 화면 왼쪽 아무 곳이나 누르면 바로 조작 가능
+  // (단, 레이아웃 설정에서 손잡이 위치를 고정해두면 항상 그 자리에 표시된다)
   joystickZone.addEventListener('touchstart',(e)=>{
     if(joystickTouchId!==null) return;
     e.preventDefault();
     const t=e.changedTouches[0];
     joystickTouchId=t.identifier;
-    showJoystickAt(t.clientX,t.clientY);
+    if(fixedJoystickAnchor){
+      showJoystickAt(fixedJoystickAnchor.x,fixedJoystickAnchor.y);
+    } else {
+      showJoystickAt(t.clientX,t.clientY);
+    }
     updateJoystickFromPoint(t.clientX,t.clientY);
   },{passive:false});
   window.addEventListener('touchmove',(e)=>{
@@ -1695,6 +1786,88 @@
     if(e.key==='Escape' && infoModal.style.display==='flex') closeMenu();
   });
 
+  // ---- 조작 위치 설정(레이아웃 편집기) ----
+  const layoutOverlay=document.getElementById('layoutOverlay');
+  const LAYOUT_PROXY_DEFAULTS={
+    joystick:{leftPct:15,topPct:78,size:116},
+    dash:{leftPct:80,topPct:74,size:64},
+    parry:{leftPct:92,topPct:74,size:64},
+    warp:{leftPct:80,topPct:90,size:64},
+    shield:{leftPct:92,topPct:90,size:64}
+  };
+  function layoutProxyEl(key){
+    if(key==='joystick') return document.getElementById('layoutJoyProxy');
+    return document.getElementById('layoutBtn'+key.charAt(0).toUpperCase()+key.slice(1));
+  }
+  function placeProxy(key){
+    const el=layoutProxyEl(key);
+    const def=LAYOUT_PROXY_DEFAULTS[key];
+    const w=window.innerWidth,h=window.innerHeight;
+    let leftPct=def.leftPct, topPct=def.topPct;
+    if(controlLayout && controlLayout[key]){ leftPct=controlLayout[key].leftPct; topPct=controlLayout[key].topPct; }
+    const cx=leftPct/100*w, cy=topPct/100*h;
+    el.style.left=(cx-def.size/2)+'px';
+    el.style.top=(cy-def.size/2)+'px';
+  }
+  function openLayoutEditor(){
+    for(const key in LAYOUT_PROXY_DEFAULTS) placeProxy(key);
+    layoutOverlay.style.display='block';
+  }
+  function makeDraggable(el){
+    let dragging=false, offX=0, offY=0;
+    function start(e){
+      dragging=true;
+      try{ el.setPointerCapture(e.pointerId); }catch(err){}
+      const r=el.getBoundingClientRect();
+      offX=e.clientX-(r.left+r.width/2);
+      offY=e.clientY-(r.top+r.height/2);
+      el.style.cursor='grabbing';
+      e.preventDefault();
+    }
+    function move(e){
+      if(!dragging) return;
+      const w=window.innerWidth,h=window.innerHeight;
+      const cx=clamp(e.clientX-offX, el.offsetWidth/2, w-el.offsetWidth/2);
+      const cy=clamp(e.clientY-offY, el.offsetHeight/2, h-el.offsetHeight/2);
+      el.style.left=(cx-el.offsetWidth/2)+'px';
+      el.style.top=(cy-el.offsetHeight/2)+'px';
+      e.preventDefault();
+    }
+    function end(){ dragging=false; el.style.cursor='grab'; }
+    el.addEventListener('pointerdown',start);
+    el.addEventListener('pointermove',move);
+    el.addEventListener('pointerup',end);
+    el.addEventListener('pointercancel',end);
+  }
+  for(const key in LAYOUT_PROXY_DEFAULTS){ makeDraggable(layoutProxyEl(key)); }
+
+  async function saveLayout(){
+    const w=window.innerWidth,h=window.innerHeight;
+    const layout={};
+    for(const key in LAYOUT_PROXY_DEFAULTS){
+      const el=layoutProxyEl(key);
+      const size=LAYOUT_PROXY_DEFAULTS[key].size;
+      const r=el.getBoundingClientRect();
+      const cx=r.left+size/2, cy=r.top+size/2;
+      layout[key]={leftPct:clamp(cx/w*100,0,100), topPct:clamp(cy/h*100,0,100)};
+    }
+    controlLayout=layout;
+    try{ await window.storage.set(CONTROL_LAYOUT_KEY, JSON.stringify(layout), false); }catch(e){}
+    applyControlLayout();
+    layoutOverlay.style.display='none';
+  }
+  async function resetLayout(){
+    controlLayout=null;
+    try{ await window.storage.delete(CONTROL_LAYOUT_KEY, false); }catch(e){}
+    applyControlLayout();
+    for(const key in LAYOUT_PROXY_DEFAULTS) placeProxy(key);
+  }
+  document.getElementById('layoutBtn').addEventListener('click', openLayoutEditor);
+  document.getElementById('layoutSaveBtn').addEventListener('click', saveLayout);
+  document.getElementById('layoutResetBtn').addEventListener('click', resetLayout);
+  document.getElementById('layoutCloseBtn').addEventListener('click', ()=>{ layoutOverlay.style.display='none'; });
+  if(isMobile){ document.getElementById('layoutBtn').style.display='inline-block'; }
+
   // ---- PWA 설치 (모바일 진입 시 시작 화면에 다운로드 버튼 노출) ----
   let deferredInstallPrompt=null;
   const installBtn=document.getElementById('installBtn');
@@ -1718,7 +1891,7 @@
     installBtn.classList.remove('show');
   });
   window.addEventListener('appinstalled', ()=>{
-    installBtn.classList.remove('show');
+    installBtn.classList.remove('show');f,w
     installHint.classList.remove('show');
   });
   if('serviceWorker' in navigator){
@@ -1736,6 +1909,7 @@
   }
 
   loadBest();
+  loadControlLayout();
 })();
 </script>
 </body>
