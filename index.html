@@ -69,13 +69,13 @@
   #skillSummary{color:var(--dim);font-size:10px;line-height:1.9;}
 
   /* ---- 메뉴 버튼 & 정보 모달 (조작법 / 진행 / 업그레이드) ---- */
-  #menuBtn{position:absolute;top:12px;right:12px;z-index:6;pointer-events:auto;
+  #menuBtn{position:absolute;top:12px;right:12px;z-index:21;pointer-events:auto;
     width:30px;height:30px;border-radius:50%;background:rgba(10,16,24,0.7);
     border:1.5px solid var(--line);color:var(--dim);font-family:'Orbitron',sans-serif;
     font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
     transition:border-color .15s,color .15s;}
   #menuBtn:hover{border-color:var(--cyan);color:var(--cyan);}
-  #muteBtn{position:absolute;top:12px;right:52px;z-index:6;pointer-events:auto;
+  #muteBtn{position:absolute;top:12px;right:52px;z-index:21;pointer-events:auto;
     width:30px;height:30px;border-radius:50%;background:rgba(10,16,24,0.7);
     border:1.5px solid var(--line);color:var(--dim);font-size:13px;cursor:pointer;
     display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s;}
@@ -266,7 +266,7 @@
   <div id="skillOptions"></div>
 </div>
 
-<div id="warpAimHint">목표 지점을 탭하세요 (취소: WARP 버튼)</div>
+<div id="warpAimHint">손가락을 움직여 조준 · 떼면 이동</div>
 
 <div id="mobileControls">
   <div id="joystickZone">
@@ -310,7 +310,10 @@
   const isMobile = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
     ('ontouchstart' in window && navigator.maxTouchPoints>0);
   if(isMobile) document.body.classList.add('mobile');
-  let warpAiming=false; // 모바일: WARP 버튼을 누르면 목표 지점 선택 모드로 전환
+  // 모바일 워프 조준: WARP 버튼을 누르고 있는 동안 같은 손가락을 화면 위에서 움직여 목표 지점을 정하고,
+  // 손을 떼는 순간 그 지점으로 워프한다 (누르고 있는 동안만 조준 상태 유지).
+  let warpAimTouchId=null;
+  let warpAimPoint=null;
 
   // ---- 사운드 엔진 (효과음은 Web Audio로 합성, BGM은 bgm.mp3 파일 재생) ----
   const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
@@ -1044,7 +1047,6 @@
   // 손가락이 닿는 그 자리에 조이스틱이 뜨는 방식(플로팅 조이스틱)이라
   // 매번 정확한 위치를 짚을 필요 없이 화면 왼쪽 아무 곳이나 누르면 바로 조작 가능
   joystickZone.addEventListener('touchstart',(e)=>{
-    if(warpAiming) return; // 워프 목표 선택 중에는 조이스틱이 가로채지 않음
     if(joystickTouchId!==null) return;
     e.preventDefault();
     const t=e.changedTouches[0];
@@ -1080,16 +1082,29 @@
     tryParry();
   },{passive:false});
   function updateWarpAimUI(){
-    document.getElementById('btnWarp').classList.toggle('aiming',warpAiming);
-    document.getElementById('warpAimHint').classList.toggle('show',warpAiming);
+    const aiming=warpAimTouchId!==null;
+    document.getElementById('btnWarp').classList.toggle('aiming',aiming);
+    document.getElementById('warpAimHint').classList.toggle('show',aiming);
+  }
+  function canvasPointFromTouch(t){
+    const rect=canvas.getBoundingClientRect();
+    const x=(t.clientX-rect.left)*(W/rect.width);
+    const y=(t.clientY-rect.top)*(H/rect.height);
+    return {x:clamp(x,0,W),y:clamp(y,0,H)};
+  }
+  function cancelWarpAim(){
+    warpAimTouchId=null; warpAimPoint=null;
+    updateWarpAimUI();
   }
   document.getElementById('btnWarp').addEventListener('touchstart',(e)=>{
     e.preventDefault();
     if(!state || state.mode!=='playing') return;
     const p=state.player;
     if(p.skills.warp<=0 || p.warpCd>0) return;
-    // 워프 버튼을 누르면 바로 이동하지 않고, 화면을 탭해 목표 지점을 고르는 모드로 전환
-    warpAiming=true;
+    if(warpAimTouchId!==null) return; // 이미 다른 손가락으로 조준 중
+    const t=e.changedTouches[0];
+    warpAimTouchId=t.identifier;
+    warpAimPoint=canvasPointFromTouch(t);
     updateWarpAimUI();
   },{passive:false});
   document.getElementById('btnShield').addEventListener('touchstart',(e)=>{
@@ -1097,26 +1112,29 @@
     if(!state || state.mode!=='playing') return;
     tryShield();
   },{passive:false});
-  // 워프 조준 중에는 다음 터치가 무엇이든(조이스틱/버튼 영역 포함) 목표 지점 선택으로 가로챈다.
-  // WARP 버튼을 다시 누르면 취소.
-  window.addEventListener('touchstart',(e)=>{
-    if(!warpAiming) return;
-    const t=e.changedTouches[0];
-    const targetEl=document.elementFromPoint(t.clientX,t.clientY);
-    if(targetEl && targetEl.closest && targetEl.closest('#btnWarp')){
-      e.preventDefault(); e.stopPropagation();
-      warpAiming=false; updateWarpAimUI();
-      return;
+  // 워프 버튼을 누른 손가락을 그대로 화면 위에서 움직이면 조준 지점이 따라오고,
+  // 손을 떼는 순간 그 지점으로 워프한다.
+  window.addEventListener('touchmove',(e)=>{
+    if(warpAimTouchId===null) return;
+    for(const t of e.changedTouches){
+      if(t.identifier===warpAimTouchId){ warpAimPoint=canvasPointFromTouch(t); e.preventDefault(); }
     }
-    if(!state || state.mode!=='playing'){ warpAiming=false; updateWarpAimUI(); return; }
-    e.preventDefault(); e.stopPropagation();
-    const rect=canvas.getBoundingClientRect();
-    const x=(t.clientX-rect.left)*(W/rect.width);
-    const y=(t.clientY-rect.top)*(H/rect.height);
-    tryWarp({x,y});
-    warpAiming=false;
-    updateWarpAimUI();
-  },{passive:false, capture:true});
+  },{passive:false});
+  window.addEventListener('touchend',(e)=>{
+    if(warpAimTouchId===null) return;
+    for(const t of e.changedTouches){
+      if(t.identifier===warpAimTouchId){
+        if(state && state.mode==='playing' && warpAimPoint) tryWarp(warpAimPoint);
+        cancelWarpAim();
+      }
+    }
+  });
+  window.addEventListener('touchcancel',(e)=>{
+    if(warpAimTouchId===null) return;
+    for(const t of e.changedTouches){
+      if(t.identifier===warpAimTouchId) cancelWarpAim();
+    }
+  });
 
   function moveVector(){
     const k=state.keys; let x=0,y=0;
@@ -1563,6 +1581,23 @@
     }
     ctx2d.restore();
 
+    // 워프 조준 레티클 (모바일: 버튼을 누른 채 드래그하는 동안 표시)
+    if(warpAimTouchId!==null && warpAimPoint){
+      ctx2d.save();
+      ctx2d.strokeStyle='rgba(184,79,255,0.55)'; ctx2d.setLineDash([6,6]); ctx2d.lineWidth=2;
+      ctx2d.beginPath(); ctx2d.moveTo(p.x,p.y); ctx2d.lineTo(warpAimPoint.x,warpAimPoint.y); ctx2d.stroke();
+      ctx2d.setLineDash([]);
+      ctx2d.strokeStyle='#b84fff'; ctx2d.lineWidth=2.5;
+      ctx2d.beginPath(); ctx2d.arc(warpAimPoint.x,warpAimPoint.y,16,0,Math.PI*2); ctx2d.stroke();
+      ctx2d.beginPath();
+      ctx2d.moveTo(warpAimPoint.x-22,warpAimPoint.y); ctx2d.lineTo(warpAimPoint.x-10,warpAimPoint.y);
+      ctx2d.moveTo(warpAimPoint.x+10,warpAimPoint.y); ctx2d.lineTo(warpAimPoint.x+22,warpAimPoint.y);
+      ctx2d.moveTo(warpAimPoint.x,warpAimPoint.y-22); ctx2d.lineTo(warpAimPoint.x,warpAimPoint.y-10);
+      ctx2d.moveTo(warpAimPoint.x,warpAimPoint.y+10); ctx2d.lineTo(warpAimPoint.x,warpAimPoint.y+22);
+      ctx2d.stroke();
+      ctx2d.restore();
+    }
+
     // text floaters
     ctx2d.font='11px "JetBrains Mono", monospace'; ctx2d.textAlign='center';
     for(const f of state.floaters){
@@ -1589,7 +1624,7 @@
     if(isMobile){
       document.getElementById('btnWarp').style.display = p.skills.warp>0 ? 'flex' : 'none';
       document.getElementById('btnShield').style.display = p.skills.shield>0 ? 'flex' : 'none';
-      if(warpAiming && state.mode!=='playing'){ warpAiming=false; updateWarpAimUI(); }
+      if(warpAimTouchId!==null && state.mode!=='playing') cancelWarpAim();
     }
 
     const skillPct=clamp(1-state.skillTimer/SKILL_INTERVAL,0,1)*100;
@@ -1696,4 +1731,3 @@
 </script>
 </body>
 </html>
-
