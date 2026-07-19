@@ -128,6 +128,10 @@
   #installBtn.show{display:inline-block;}
   #installHint{display:none;color:var(--dim);font-size:10px;line-height:1.7;max-width:300px;}
   #installHint.show{display:block;}
+  #fullscreenBtn{font-family:'Orbitron',sans-serif;background:transparent;color:var(--amber);
+    border:1.5px solid var(--amber);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
+    cursor:pointer;}
+  #fullscreenBtn:hover{background:rgba(255,184,79,0.1);}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -251,6 +255,7 @@
     30초마다 시스템 업그레이드를 선택할 수 있다.
   </div>
   <button id="startBtn">시작</button>
+  <button id="fullscreenBtn">⛶ 전체화면</button>
   <button id="installBtn">📲 앱으로 다운로드</button>
   <div id="installHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
 </div>
@@ -274,6 +279,8 @@
     <button id="btnShield" class="mobileBtn" style="display:none;">SHIELD</button>
   </div>
 </div>
+
+<audio id="bgmAudio" src="bgm.mp3" loop preload="auto"></audio>
 
 <script>
 (function(){
@@ -305,12 +312,15 @@
   if(isMobile) document.body.classList.add('mobile');
   let warpAiming=false; // 모바일: WARP 버튼을 누르면 목표 지점 선택 모드로 전환
 
-  // ---- 사운드 엔진 (외부 파일 없이 Web Audio로 합성) ----
+  // ---- 사운드 엔진 (효과음은 Web Audio로 합성, BGM은 bgm.mp3 파일 재생) ----
   const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
   const masterGain=audioCtx.createGain(); masterGain.gain.value=1; masterGain.connect(audioCtx.destination);
   const sfxGain=audioCtx.createGain(); sfxGain.gain.value=0.8; sfxGain.connect(masterGain);
-  const musicGainNode=audioCtx.createGain(); musicGainNode.gain.value=0.32; musicGainNode.connect(masterGain);
   let muted=false, audioStarted=false;
+
+  // BGM: 같은 폴더에 있는 bgm.mp3 파일을 재생한다.
+  const bgmAudio=document.getElementById('bgmAudio');
+  bgmAudio.volume=0.45;
 
   function tone(freq,duration,opts){
     opts=opts||{};
@@ -359,24 +369,11 @@
   function sfxUpgradeReady(){ tone(660,0.12,{type:'sine',gain:0.16,freqEnd:990}); tone(990,0.14,{type:'sine',gain:0.12,freqEnd:1320,delay:0.06}); }
   function sfxUpgradePick(){ tone(880,0.16,{type:'triangle',gain:0.2,freqEnd:1320}); }
 
-  let musicNodes=null, musicInterval=null;
   function startMusic(){
-    if(musicNodes) return;
-    const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator();
-    o1.type='sawtooth'; o1.frequency.value=55;
-    o2.type='sine'; o2.frequency.value=55.4;
-    const filter=audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=260;
-    const g=audioCtx.createGain(); g.gain.value=0.5;
-    o1.connect(filter); o2.connect(filter); filter.connect(g); g.connect(musicGainNode);
-    o1.start(); o2.start();
-    musicNodes={o1,o2,filter,g};
-    const scale=[110,130.81,164.81,196,220,261.63];
-    musicInterval=setInterval(()=>{
-      if(muted) return;
-      const f=scale[Math.floor(Math.random()*scale.length)];
-      tone(f,1.1,{type:'sine',gain:0.06,dest:musicGainNode});
-      if(Math.random()<0.35) tone(f*2,0.8,{type:'triangle',gain:0.035,dest:musicGainNode,delay:0.2});
-    },1500);
+    if(muted) return;
+    bgmAudio.currentTime = bgmAudio.currentTime || 0;
+    const p=bgmAudio.play();
+    if(p && p.catch) p.catch((e)=>{ console.warn('[RIPOSTE] BGM 재생 실패(자동재생 정책일 수 있음):', e); });
   }
   function ensureAudio(){
     if(audioCtx.state==='suspended') audioCtx.resume();
@@ -385,6 +382,7 @@
   function toggleMute(){
     muted=!muted;
     masterGain.gain.setTargetAtTime(muted?0:1, audioCtx.currentTime, 0.05);
+    if(muted){ bgmAudio.pause(); } else if(audioStarted){ bgmAudio.play().catch(()=>{}); }
     const btn=document.getElementById('muteBtn');
     if(btn) btn.textContent=muted?'🔇':'🔊';
   }
@@ -1614,6 +1612,23 @@
 
   document.getElementById('muteBtn').addEventListener('click', toggleMute);
 
+  // ---- 전체화면 전환 ----
+  function toggleFullscreen(){
+    const el=document.documentElement;
+    if(!document.fullscreenElement && !document.webkitFullscreenElement){
+      const req=el.requestFullscreen||el.webkitRequestFullscreen;
+      if(req) req.call(el).catch((e)=>console.warn('[RIPOSTE] 전체화면 진입 실패:',e));
+    } else {
+      const exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(exit) exit.call(document);
+    }
+  }
+  const fullscreenBtn=document.getElementById('fullscreenBtn');
+  if(!(document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen)){
+    fullscreenBtn.style.display='none';
+  }
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+
   // ---- 메뉴(조작법/진행/업그레이드) 모달 ----
   const infoModal=document.getElementById('infoModal');
   let pausedFromPlaying=false;
@@ -1681,4 +1696,3 @@
 </script>
 </body>
 </html>
-
