@@ -136,11 +136,15 @@
     border:1.5px solid var(--purple);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
   #layoutBtn:hover,#overLayoutBtn:hover{background:rgba(184,79,255,0.1);}
-  #updateCheckBtn{font-family:'Orbitron',sans-serif;background:transparent;color:var(--dim);
-    border:1.5px solid var(--line);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
-    cursor:pointer;}
+  #updateCheckBtn{position:fixed;top:52px;right:12px;z-index:22;
+    width:30px;height:30px;border-radius:50%;background:rgba(10,16,24,0.7);
+    border:1.5px solid var(--line);color:var(--dim);font-size:14px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:border-color .15s,color .15s;}
   #updateCheckBtn:hover{border-color:var(--text);color:var(--text);}
   #updateCheckBtn:disabled{opacity:0.5;cursor:default;}
+  #updateCheckBtn.spinning{animation:updateSpin 0.9s linear infinite;}
+  @keyframes updateSpin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -221,6 +225,8 @@
   </div>
 </div>
 
+<button id="updateCheckBtn" title="업데이트 체크">🔄</button>
+
 <div id="infoModal">
   <div id="infoModalBox">
     <button id="infoModalClose">✕</button>
@@ -290,7 +296,7 @@
   <button id="layoutBtn">🎮 조작 위치 설정</button>
   <button id="installBtn">📲 앱으로 다운로드</button>
   <div id="installHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
-  <button id="updateCheckBtn">🔄 업데이트 체크</button>
+
 </div>
 
 <div id="skillOverlay">
@@ -2030,7 +2036,7 @@
   // 1) 모든 서비스워커 등록 해제 2) 모든 Cache Storage 삭제 3) 캐시 무효화 쿼리스트링을 붙여 강제 리로드
   async function checkForUpdate(){
     const btn=document.getElementById('updateCheckBtn');
-    if(btn){ btn.disabled=true; btn.textContent='업데이트 확인 중...'; }
+    if(btn){ btn.disabled=true; btn.classList.add('spinning'); }
     try{
       if('serviceWorker' in navigator){
         const regs=await navigator.serviceWorker.getRegistrations();
@@ -2056,4 +2062,3 @@
 </script>
 </body>
 </html>
-
