@@ -136,6 +136,11 @@
     border:1.5px solid var(--purple);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
     cursor:pointer;}
   #layoutBtn:hover,#overLayoutBtn:hover{background:rgba(184,79,255,0.1);}
+  #updateCheckBtn{font-family:'Orbitron',sans-serif;background:transparent;color:var(--dim);
+    border:1.5px solid var(--line);padding:10px 24px;font-size:11px;font-weight:700;letter-spacing:2px;
+    cursor:pointer;}
+  #updateCheckBtn:hover{border-color:var(--text);color:var(--text);}
+  #updateCheckBtn:disabled{opacity:0.5;cursor:default;}
 
   /* ---- 모바일 터치 조작 ---- */
   #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:15;}
@@ -285,6 +290,7 @@
   <button id="layoutBtn">🎮 조작 위치 설정</button>
   <button id="installBtn">📲 앱으로 다운로드</button>
   <div id="installHint">iOS: 공유 버튼(⬆️) → "홈 화면에 추가"를 눌러 앱으로 설치할 수 있습니다.</div>
+  <button id="updateCheckBtn">🔄 업데이트 체크</button>
 </div>
 
 <div id="skillOverlay">
@@ -2018,10 +2024,35 @@
     console.warn('[RIPOSTE] 이 브라우저는 서비스워커를 지원하지 않습니다.');
   }
 
+  // ---- 업데이트 체크 (서비스워커 캐시 삭제 후 강제 새로고침) ----
+  // 개발 중 sw.js 캐시에 옛 버전이 남아있는 문제를 사용자가 직접 해결할 수 있도록,
+  // 로비 화면에 "업데이트 체크" 버튼을 둔다.
+  // 1) 모든 서비스워커 등록 해제 2) 모든 Cache Storage 삭제 3) 캐시 무효화 쿼리스트링을 붙여 강제 리로드
+  async function checkForUpdate(){
+    const btn=document.getElementById('updateCheckBtn');
+    if(btn){ btn.disabled=true; btn.textContent='업데이트 확인 중...'; }
+    try{
+      if('serviceWorker' in navigator){
+        const regs=await navigator.serviceWorker.getRegistrations();
+        for(const reg of regs){ await reg.unregister(); }
+      }
+      if('caches' in window){
+        const keys=await caches.keys();
+        for(const key of keys){ await caches.delete(key); }
+      }
+    }catch(e){
+      console.warn('[RIPOSTE] 업데이트 체크 중 오류:', e);
+    }
+    const url=new URL(location.href);
+    url.searchParams.set('_v', Date.now().toString());
+    location.replace(url.toString());
+  }
+  const updateCheckBtn=document.getElementById('updateCheckBtn');
+  if(updateCheckBtn) updateCheckBtn.addEventListener('click', checkForUpdate);
+
   loadBest();
   loadControlLayout();
 })();
 </script>
 </body>
 </html>
-
