@@ -957,7 +957,7 @@
     state.floaters.push({x,y,txt,color,life:700,maxLife:700});
   }
 
-  function startFloor(floor,carryHpFrac){
+  function startFloor(floor,carryHpFrac,grantedSkills){
     const boss=makeBoss(floor);
     state.floor=floor;
     state.boss=boss;
@@ -970,7 +970,7 @@
     state.player.hitInvuln=500;
     if(carryHpFrac!=null) state.player.hp=Math.min(state.player.maxhp, Math.round(state.player.maxhp*carryHpFrac)+20);
     state.mode='playing';
-    flashFloor(floor,boss);
+    flashFloor(floor,boss,grantedSkills);
   }
 
   function spawnTrap(){
@@ -979,16 +979,31 @@
     state.traps.push({x,y,phase:'warn',timer:TRAP_WARN_MS,triggered:false});
   }
 
-  function flashFloor(floor,boss){
+  function flashFloor(floor,boss,grantedSkills){
     const el=document.getElementById('floorFlash');
     const txt=document.getElementById('floorFlashText');
+    let extra='';
+    if(grantedSkills && grantedSkills.length){
+      extra=`<br><span style="color:var(--green);font-size:12px;">+ ${grantedSkills.join(', ')}</span>`;
+    }
     if(floor>50){
-      txt.innerHTML=`지상 · 최종 관문<br><span style="color:${boss.color};font-size:15px;">${boss.name}</span>`;
+      txt.innerHTML=`지상 · 최종 관문<br><span style="color:${boss.color};font-size:15px;">${boss.name}</span>${extra}`;
     } else {
-      txt.innerHTML=`FLOOR ${floor}<br><span style="color:${boss.color};font-size:15px;">${boss.name}</span>`;
+      txt.innerHTML=`FLOOR ${floor}<br><span style="color:${boss.color};font-size:15px;">${boss.name}</span>${extra}`;
     }
     el.style.display='flex';
     setTimeout(()=>{el.style.display='none';},1100);
+  }
+
+  // 보스를 잡을 때마다 무작위 업그레이드 2개를 즉시 지급한다 (선택 없이 바로 적용, 중복 스킬은 레벨업으로 처리됨)
+  function grantRandomSkills(n){
+    const names=[];
+    for(let i=0;i<n;i++){
+      const sk=SKILL_POOL[Math.floor(Math.random()*SKILL_POOL.length)];
+      applySkill(sk.id);
+      names.push(sk.name);
+    }
+    return names;
   }
 
   // ---- 업그레이드(스킬) 시스템 ----
@@ -1559,7 +1574,9 @@
     }
     sfxFloorClear();
     const hpFrac=state.player.hp/state.player.maxhp;
-    setTimeout(()=>{ startFloor(state.floor+1,hpFrac); }, 900);
+    const granted=grantRandomSkills(2);
+    sfxUpgradePick();
+    setTimeout(()=>{ startFloor(state.floor+1,hpFrac,granted); }, 900);
   }
   async function gameOver(){
     state.mode='gameOver';
