@@ -758,7 +758,7 @@
       wait:Math.max(0.26,(1-0.13*tier)/aggro)
     };
     // 초반부(1~10층, tier 0) 체력을 낮춰 진입 장벽을 완화한다
-    const hpMult=(1+0.42*tier)*(tier>=3?1.14:1)*(tier===0?0.7:1);
+    const hpMult=(1+0.42*tier)*(tier>=3?1.14:1)*(tier===0?0.4:1);
     const hp=Math.round(def.hp*hpMult);
     const dmgMult=(1+0.2*tier)*(tier>=3?1.16:1);
     // 오메가(4티어)는 사이클마다 추가 패턴이 하나 더 붙는다
